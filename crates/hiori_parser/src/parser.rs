@@ -73,7 +73,7 @@ impl Parser {
     }
 
     fn parse_multiplicative(&mut self) -> Option<Node<Expr>> {
-        let mut left = self.parse_primary()?;
+        let mut left = self.parse_unary()?;
 
         loop {
             let op = match self.peek_kind() {
@@ -82,7 +82,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            let right = self.parse_primary()?;
+            let right = self.parse_unary()?;
             let span = Span::new(left.span.start, right.span.end);
             left = Node::new(
                 Expr::Binary { op, left: Box::new(left), right: Box::new(right) },
@@ -91,6 +91,18 @@ impl Parser {
         }
 
         Some(left)
+    }
+
+    fn parse_unary(&mut self) -> Option<Node<Expr>> {
+        if matches!(self.peek_kind(), TokenKind::Minus) {
+            let minus_span = self.current_span();
+            self.advance();
+            let operand = self.parse_unary()?;
+            let span = Span::new(minus_span.start, operand.span.end);
+            Some(Node::new(Expr::Neg(Box::new(operand)), span))
+        } else {
+            self.parse_primary()
+        }
     }
 
     fn parse_primary(&mut self) -> Option<Node<Expr>> {
@@ -217,5 +229,113 @@ mod tests {
     fn unexpected_eof_produces_diagnostic() {
         let (_, diags) = parse("1 +");
         assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn negate_integer() {
+        let (expr, diags) = parse("-1");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Neg(_)));
+    }
+
+    #[test]
+    fn negate_ident() {
+        let (expr, diags) = parse("-x");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Neg(_)));
+    }
+
+    #[test]
+    fn negate_parenthesized() {
+        let (expr, diags) = parse("-(1 + 2)");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Neg(operand) => {
+                assert!(matches!(operand.inner, Expr::Binary { op: BinOp::Add, .. }));
+            }
+            _ => panic!("expected Neg at root"),
+        }
+    }
+
+    #[test]
+    fn double_negation() {
+        let (expr, diags) = parse("--1");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Neg(inner) => {
+                assert!(matches!(inner.inner, Expr::Neg(_)));
+            }
+            _ => panic!("expected Neg at root"),
+        }
+    }
+
+    #[test]
+    fn unary_binds_tighter_than_multiply() {
+        let (expr, diags) = parse("-2 * 3");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Binary { op: BinOp::Mul, left, .. } => {
+                assert!(matches!(left.inner, Expr::Neg(_)));
+            }
+            _ => panic!("expected Mul at root"),
+        }
+    }
+
+    #[test]
+    fn unary_in_right_operand_of_addition() {
+        // 1 + -2  →  Binary(Add, 1, Neg(2))
+        let (expr, diags) = parse("1 + -2");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Binary { op: BinOp::Add, right, .. } => {
+                assert!(matches!(right.inner, Expr::Neg(_)));
+            }
+            _ => panic!("expected Add at root"),
+        }
+    }
+
+    #[test]
+    fn binary_minus_then_unary_minus() {
+        let (expr, diags) = parse("1 - -1");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Binary { op: BinOp::Sub, right, .. } => {
+                assert!(matches!(right.inner, Expr::Neg(_)));
+            }
+            _ => panic!("expected Sub at root"),
+        }
+    }
+
+    #[test]
+    fn unary_minus_span() {
+        let (tokens, mut lex_diags) = Lexer::new("-42").tokenize();
+        let mut parser = Parser::new(tokens);
+        let node = parser.parse().unwrap();
+
+        lex_diags.extend(parser.finish());
+        assert!(lex_diags.is_empty());
+
+        assert_eq!(node.span.start, 0);
+        assert_eq!(node.span.end, 3);
+
+        match node.inner {
+            Expr::Neg(operand) => {
+                assert_eq!(operand.span.start, 1);
+                assert_eq!(operand.span.end, 3);
+            }
+            _ => panic!("expected Neg"),
+        }
+    }
+
+    #[test]
+    fn unary_minus_alone_produces_diagnostic() {
+        let (expr, diags) = parse("-");
+        assert!(!diags.is_empty());
+        assert!(expr.is_none());
     }
 }

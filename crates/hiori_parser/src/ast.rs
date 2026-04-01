@@ -29,4 +29,5 @@ pub enum Expr {
         left: Box<Node<Expr>>,
         right: Box<Node<Expr>>,
     },
+    Neg(Box<Node<Expr>>),
 }
