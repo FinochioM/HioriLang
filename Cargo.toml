@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/hiori_lexer",
+    "crates/hiori_parser",
+    "crates/hiori_diagnostics",
+    "crates/hiori_cli",
+]
+resolver = "2"

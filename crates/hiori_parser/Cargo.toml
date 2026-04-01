@@ -1,0 +1,8 @@
+[package]
+name = "hiori_parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hiori_lexer       = { path = "../hiori_lexer" }
+hiori_diagnostics = { path = "../hiori_diagnostics" }
