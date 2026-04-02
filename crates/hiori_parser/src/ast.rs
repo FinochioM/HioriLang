@@ -36,6 +36,7 @@ pub enum Expr {
 pub enum Stmt {
     Let {
         name: String,
+        name_span: Span,
         value: Box<Node<Expr>>,
     },
 

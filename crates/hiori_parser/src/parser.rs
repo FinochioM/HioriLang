@@ -92,10 +92,11 @@ impl Parser {
         let let_span = self.current_span();
         self.advance();
 
-        let name = match self.peek_kind().clone() {
+        let (name, name_span) = match self.peek_kind().clone() {
             TokenKind::Ident(n) => {
+                let span = self.current_span();
                 self.advance();
-                n
+                (n, span)
             }
             _ => {
                 let span = self.current_span();
@@ -112,7 +113,7 @@ impl Parser {
 
         let span = Span::new(let_span.start, value.span.end);
         Some(Node::new(
-            Stmt::Let { name, value: Box::new(value) },
+            Stmt::Let { name, name_span, value: Box::new(value) },
             span,
         ))
     }
@@ -447,7 +448,7 @@ mod tests {
         assert!(diags.is_empty());
         assert_eq!(program.stmts.len(), 1);
         match &program.stmts[0].inner {
-            Stmt::Let { name, value } => {
+            Stmt::Let { name, value, .. } => {
                 assert_eq!(name, "x");
                 assert!(matches!(value.inner, Expr::Integer(42)));
             }
@@ -461,7 +462,7 @@ mod tests {
         assert!(diags.is_empty());
         assert_eq!(program.stmts.len(), 1);
         match &program.stmts[0].inner {
-            Stmt::Let { name, value } => {
+            Stmt::Let { name, value, .. } => {
                 assert_eq!(name, "result");
                 assert!(matches!(value.inner, Expr::Binary { op: BinOp::Add, .. }));
             }
@@ -474,7 +475,7 @@ mod tests {
         let (program, diags) = parse_program("let y = x;");
         assert!(diags.is_empty());
         match &program.stmts[0].inner {
-            Stmt::Let { name, value } => {
+            Stmt::Let { name, value, .. } => {
                 assert_eq!(name, "y");
                 assert!(matches!(&value.inner, Expr::Ident(n) if n == "x"));
             }
@@ -568,8 +569,8 @@ mod tests {
     #[test]
     fn second_statement_parses_after_first_fails() {
         let (program, diags) = parse_program("let = 42;\nlet y = 1;");
-        assert!(!diags.is_empty()); // first statement failed
-        assert_eq!(program.stmts.len(), 1); // second statement succeeded
+        assert!(!diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
         assert!(matches!(program.stmts[0].inner, Stmt::Let { .. }));
     }
 
@@ -580,5 +581,18 @@ mod tests {
         let node = &program.stmts[0];
         assert_eq!(node.span.start, 0);
         assert_eq!(node.span.end, 9);
+    }
+
+    #[test]
+    fn let_name_span_is_precise() {
+        let (program, diags) = parse_program("let x = 5;");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::Let { name_span, .. } => {
+                assert_eq!(name_span.start, 4);
+                assert_eq!(name_span.end,   5);
+            }
+            _ => panic!("expected Let"),
+        }
     }
 }

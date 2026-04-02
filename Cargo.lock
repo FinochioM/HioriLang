@@ -9,6 +9,7 @@ dependencies = [
  "hiori_diagnostics",
  "hiori_lexer",
  "hiori_parser",
+ "hiori_sema",
 ]
 
 [[package]]
@@ -28,4 +29,13 @@ version = "0.1.0"
 dependencies = [
  "hiori_diagnostics",
  "hiori_lexer",
+]
+
+[[package]]
+name = "hiori_sema"
+version = "0.1.0"
+dependencies = [
+ "hiori_diagnostics",
+ "hiori_lexer",
+ "hiori_parser",
 ]

@@ -10,4 +10,5 @@ path = "src/main.rs"
 [dependencies]
 hiori_lexer       = { path = "../hiori_lexer" }
 hiori_parser      = { path = "../hiori_parser" }
+hiori_sema        = { path = "../hiori_sema" }
 hiori_diagnostics = { path = "../hiori_diagnostics" }
