@@ -22,7 +22,7 @@ fn main() {
 
     let (tokens, mut diagnostics) = Lexer::new(&source).tokenize();
     let mut parser = Parser::new(tokens);
-    let expr = parser.parse();
+    let program = parser.parse_program();
     diagnostics.extend(parser.finish());
 
     if !diagnostics.is_empty() {
@@ -30,5 +30,5 @@ fn main() {
         process::exit(1);
     }
 
-    println!("{:#?}", expr.expect("no diagnostics but no expression — this is a compiler bug"));
+    println!("{:#?}", program);
 }

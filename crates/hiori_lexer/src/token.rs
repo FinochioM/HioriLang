@@ -2,24 +2,18 @@ use hiori_diagnostics::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // Literals
     Integer(i64),
     Ident(String),
-
-    // Arithmetic operators
+    Let,
     Plus,
     Minus,
     Star,
     Slash,
-
-    // Delimiters
+    Eq,
     LParen,
     RParen,
-
-    // Signals end of input — always the last token
+    Semicolon,
     Eof,
-
-    // A character the lexer does not recognize.
     Unknown(char),
 }
 

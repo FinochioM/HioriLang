@@ -31,3 +31,18 @@ pub enum Expr {
     },
     Neg(Box<Node<Expr>>),
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stmt {
+    Let {
+        name: String,
+        value: Box<Node<Expr>>,
+    },
+
+    Expr(Node<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Program {
+    pub stmts: Vec<Node<Stmt>>,
+}

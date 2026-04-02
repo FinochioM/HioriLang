@@ -1,7 +1,7 @@
 use hiori_diagnostics::{Diagnostic, Span};
 use hiori_lexer::{Token, TokenKind};
 
-use crate::ast::{BinOp, Expr, Node};
+use crate::ast::{BinOp, Expr, Node, Program, Stmt};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -35,7 +35,99 @@ impl Parser {
         self.diagnostics.push(Diagnostic::error(message, span));
     }
 
-    pub fn parse(&mut self) -> Option<Node<Expr>> {
+    fn expect(&mut self, kind: &TokenKind, message: &str) -> Option<Span> {
+        if self.peek_kind() == kind {
+            let span = self.current_span();
+            self.advance();
+            Some(span)
+        } else {
+            let span = self.current_span();
+            self.error(message, span);
+            None
+        }
+    }
+
+    pub fn finish(self) -> Vec<Diagnostic> {
+        self.diagnostics
+    }
+
+    pub fn parse_program(&mut self) -> Program {
+        let mut stmts = Vec::new();
+
+        while !matches!(self.peek_kind(), TokenKind::Eof) {
+            match self.parse_stmt() {
+                Some(stmt) => stmts.push(stmt),
+                None => {
+                    self.synchronize();
+                }
+            }
+        }
+
+        Program { stmts }
+    }
+
+    fn synchronize(&mut self) {
+        loop {
+            match self.peek_kind() {
+                TokenKind::Eof => break,
+                TokenKind::Semicolon => {
+                    self.advance();
+                    break;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+    }
+
+    fn parse_stmt(&mut self) -> Option<Node<Stmt>> {
+        match self.peek_kind() {
+            TokenKind::Let => self.parse_let_stmt(),
+            _              => self.parse_expr_stmt(),
+        }
+    }
+
+    fn parse_let_stmt(&mut self) -> Option<Node<Stmt>> {
+        let let_span = self.current_span();
+        self.advance();
+
+        let name = match self.peek_kind().clone() {
+            TokenKind::Ident(n) => {
+                self.advance();
+                n
+            }
+            _ => {
+                let span = self.current_span();
+                self.error("expected identifier after 'let'", span);
+                return None;
+            }
+        };
+
+        self.expect(&TokenKind::Eq, "expected '=' after binding name")?;
+
+        let value = self.parse_expr()?;
+
+        self.expect(&TokenKind::Semicolon, "expected ';' after 'let' statement")?;
+
+        let span = Span::new(let_span.start, value.span.end);
+        Some(Node::new(
+            Stmt::Let { name, value: Box::new(value) },
+            span,
+        ))
+    }
+
+    fn parse_expr_stmt(&mut self) -> Option<Node<Stmt>> {
+        let expr = self.parse_expr()?;
+
+        self.expect(&TokenKind::Semicolon, "expected ';' after expression")?;
+
+        let span = expr.span.clone();
+        Some(Node::new(Stmt::Expr(expr), span))
+    }
+
+    #[cfg(test)]
+    fn parse(&mut self) -> Option<Node<Expr>> {
         let result = self.parse_expr();
         if !matches!(self.peek_kind(), TokenKind::Eof) {
             let span = self.current_span();
@@ -148,10 +240,6 @@ impl Parser {
             }
         }
     }
-
-    pub fn finish(self) -> Vec<Diagnostic> {
-        self.diagnostics
-    }
 }
 
 #[cfg(test)]
@@ -159,7 +247,15 @@ mod tests {
     use super::*;
     use hiori_lexer::Lexer;
 
-    fn parse(source: &str) -> (Option<Node<Expr>>, Vec<Diagnostic>) {
+    fn parse_program(source: &str) -> (Program, Vec<Diagnostic>) {
+        let (tokens, mut lex_diags) = Lexer::new(source).tokenize();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program();
+        lex_diags.extend(parser.finish());
+        (program, lex_diags)
+    }
+
+    fn parse_expr(source: &str) -> (Option<Node<Expr>>, Vec<Diagnostic>) {
         let (tokens, mut lex_diags) = Lexer::new(source).tokenize();
         let mut parser = Parser::new(tokens);
         let expr = parser.parse();
@@ -169,21 +265,21 @@ mod tests {
 
     #[test]
     fn parse_integer() {
-        let (expr, diags) = parse("42");
+        let (expr, diags) = parse_expr("42");
         assert!(diags.is_empty());
         assert!(matches!(expr.unwrap().inner, Expr::Integer(42)));
     }
 
     #[test]
     fn parse_addition() {
-        let (expr, diags) = parse("1 + 2");
+        let (expr, diags) = parse_expr("1 + 2");
         assert!(diags.is_empty());
         assert!(matches!(expr.unwrap().inner, Expr::Binary { op: BinOp::Add, .. }));
     }
 
     #[test]
     fn operator_precedence() {
-        let (expr, diags) = parse("1 + 2 * 3");
+        let (expr, diags) = parse_expr("1 + 2 * 3");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -196,7 +292,7 @@ mod tests {
 
     #[test]
     fn parentheses_override_precedence() {
-        let (expr, diags) = parse("(1 + 2) * 3");
+        let (expr, diags) = parse_expr("(1 + 2) * 3");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -209,45 +305,45 @@ mod tests {
 
     #[test]
     fn unknown_character_produces_diagnostic() {
-        let (_, diags) = parse("@");
+        let (_, diags) = parse_expr("@");
         assert!(!diags.is_empty());
     }
 
     #[test]
     fn trailing_token_produces_diagnostic() {
-        let (_, diags) = parse("1 + 2 @");
+        let (_, diags) = parse_expr("1 + 2 @");
         assert!(!diags.is_empty());
     }
 
     #[test]
     fn missing_closing_paren_produces_diagnostic() {
-        let (_, diags) = parse("(1 + 2");
+        let (_, diags) = parse_expr("(1 + 2");
         assert!(!diags.is_empty());
     }
 
     #[test]
     fn unexpected_eof_produces_diagnostic() {
-        let (_, diags) = parse("1 +");
+        let (_, diags) = parse_expr("1 +");
         assert!(!diags.is_empty());
     }
 
     #[test]
     fn negate_integer() {
-        let (expr, diags) = parse("-1");
+        let (expr, diags) = parse_expr("-1");
         assert!(diags.is_empty());
         assert!(matches!(expr.unwrap().inner, Expr::Neg(_)));
     }
 
     #[test]
     fn negate_ident() {
-        let (expr, diags) = parse("-x");
+        let (expr, diags) = parse_expr("-x");
         assert!(diags.is_empty());
         assert!(matches!(expr.unwrap().inner, Expr::Neg(_)));
     }
 
     #[test]
     fn negate_parenthesized() {
-        let (expr, diags) = parse("-(1 + 2)");
+        let (expr, diags) = parse_expr("-(1 + 2)");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -260,7 +356,7 @@ mod tests {
 
     #[test]
     fn double_negation() {
-        let (expr, diags) = parse("--1");
+        let (expr, diags) = parse_expr("--1");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -273,7 +369,7 @@ mod tests {
 
     #[test]
     fn unary_binds_tighter_than_multiply() {
-        let (expr, diags) = parse("-2 * 3");
+        let (expr, diags) = parse_expr("-2 * 3");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -286,8 +382,7 @@ mod tests {
 
     #[test]
     fn unary_in_right_operand_of_addition() {
-        // 1 + -2  →  Binary(Add, 1, Neg(2))
-        let (expr, diags) = parse("1 + -2");
+        let (expr, diags) = parse_expr("1 + -2");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -300,7 +395,7 @@ mod tests {
 
     #[test]
     fn binary_minus_then_unary_minus() {
-        let (expr, diags) = parse("1 - -1");
+        let (expr, diags) = parse_expr("1 - -1");
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
@@ -334,8 +429,156 @@ mod tests {
 
     #[test]
     fn unary_minus_alone_produces_diagnostic() {
-        let (expr, diags) = parse("-");
+        let (expr, diags) = parse_expr("-");
         assert!(!diags.is_empty());
         assert!(expr.is_none());
+    }
+
+    #[test]
+    fn empty_program() {
+        let (program, diags) = parse_program("");
+        assert!(diags.is_empty());
+        assert!(program.stmts.is_empty());
+    }
+
+    #[test]
+    fn let_integer() {
+        let (program, diags) = parse_program("let x = 42;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
+        match &program.stmts[0].inner {
+            Stmt::Let { name, value } => {
+                assert_eq!(name, "x");
+                assert!(matches!(value.inner, Expr::Integer(42)));
+            }
+            _ => panic!("expected Let"),
+        }
+    }
+
+    #[test]
+    fn let_expression_value() {
+        let (program, diags) = parse_program("let result = 1 + 2 * 3;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
+        match &program.stmts[0].inner {
+            Stmt::Let { name, value } => {
+                assert_eq!(name, "result");
+                assert!(matches!(value.inner, Expr::Binary { op: BinOp::Add, .. }));
+            }
+            _ => panic!("expected Let"),
+        }
+    }
+
+    #[test]
+    fn let_ident_value() {
+        let (program, diags) = parse_program("let y = x;");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::Let { name, value } => {
+                assert_eq!(name, "y");
+                assert!(matches!(&value.inner, Expr::Ident(n) if n == "x"));
+            }
+            _ => panic!("expected Let"),
+        }
+    }
+
+    #[test]
+    fn let_negated_value() {
+        let (program, diags) = parse_program("let a = -1;");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::Let { value, .. } => {
+                assert!(matches!(value.inner, Expr::Neg(_)));
+            }
+            _ => panic!("expected Let"),
+        }
+    }
+
+    #[test]
+    fn multiple_let_statements() {
+        let (program, diags) = parse_program("let x = 1;\nlet y = 2;\nlet z = 3;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 3);
+    }
+
+    #[test]
+    fn expr_statement() {
+        let (program, diags) = parse_program("1 + 2;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
+        assert!(matches!(program.stmts[0].inner, Stmt::Expr(_)));
+    }
+
+    #[test]
+    fn mixed_statements() {
+        let (program, diags) = parse_program("let x = 10;\nx + 1;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 2);
+        assert!(matches!(program.stmts[0].inner, Stmt::Let { .. }));
+        assert!(matches!(program.stmts[1].inner, Stmt::Expr(_)));
+    }
+
+    #[test]
+    fn let_missing_semicolon() {
+        let (_, diags) = parse_program("let x = 42");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains(';')));
+    }
+
+    #[test]
+    fn let_missing_eq() {
+        let (_, diags) = parse_program("let x 42;");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains('=')));
+    }
+
+    #[test]
+    fn let_missing_name() {
+        let (_, diags) = parse_program("let = 42;");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains("identifier")));
+    }
+
+    #[test]
+    fn let_missing_value() {
+        let (_, diags) = parse_program("let x = ;");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn expr_statement_missing_semicolon() {
+        let (_, diags) = parse_program("1 + 2");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains(';')));
+    }
+
+    #[test]
+    fn let_as_value_is_rejected() {
+        let (_, diags) = parse_program("let x = let y = 1;");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn integer_as_binding_name_is_rejected() {
+        let (_, diags) = parse_program("let 42 = x;");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains("identifier")));
+    }
+
+    #[test]
+    fn second_statement_parses_after_first_fails() {
+        let (program, diags) = parse_program("let = 42;\nlet y = 1;");
+        assert!(!diags.is_empty()); // first statement failed
+        assert_eq!(program.stmts.len(), 1); // second statement succeeded
+        assert!(matches!(program.stmts[0].inner, Stmt::Let { .. }));
+    }
+
+    #[test]
+    fn let_span_covers_full_statement() {
+        let (program, diags) = parse_program("let x = 5;");
+        assert!(diags.is_empty());
+        let node = &program.stmts[0];
+        assert_eq!(node.span.start, 0);
+        assert_eq!(node.span.end, 9);
     }
 }

@@ -64,7 +64,14 @@ impl<'src> Lexer<'src> {
             text.push(self.advance().unwrap().1);
         }
 
-        Token::new(TokenKind::Ident(text), start, self.pos())
+        let end = self.pos();
+
+        let kind = match text.as_str() {
+            "let" => TokenKind::Let,
+            _     => TokenKind::Ident(text),
+        };
+
+        Token::new(kind, start, end)
     }
 
     pub fn next_token(&mut self) -> Token {
@@ -76,12 +83,14 @@ impl<'src> Lexer<'src> {
         };
 
         match c {
-            '+' => Token::new(TokenKind::Plus,   start, start + 1),
-            '-' => Token::new(TokenKind::Minus,  start, start + 1),
-            '*' => Token::new(TokenKind::Star,   start, start + 1),
-            '/' => Token::new(TokenKind::Slash,  start, start + 1),
-            '(' => Token::new(TokenKind::LParen, start, start + 1),
-            ')' => Token::new(TokenKind::RParen, start, start + 1),
+            '+' => Token::new(TokenKind::Plus,      start, start + 1),
+            '-' => Token::new(TokenKind::Minus,     start, start + 1),
+            '*' => Token::new(TokenKind::Star,      start, start + 1),
+            '/' => Token::new(TokenKind::Slash,     start, start + 1),
+            '(' => Token::new(TokenKind::LParen,    start, start + 1),
+            ')' => Token::new(TokenKind::RParen,    start, start + 1),
+            '=' => Token::new(TokenKind::Eq,        start, start + 1),
+            ';' => Token::new(TokenKind::Semicolon, start, start + 1),
 
             c if c.is_ascii_digit()            => self.read_integer(start, c),
             c if c.is_alphabetic() || c == '_' => self.read_ident(start, c),
@@ -193,5 +202,54 @@ mod tests {
     fn unknown_character_after_expression_produces_diagnostic() {
         let (_, diags) = tokenize("1 + 2 @");
         assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn let_keyword_is_promoted() {
+        assert_eq!(kinds("let"), vec![TokenKind::Let, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn let_prefix_in_ident_is_not_promoted() {
+        assert_eq!(
+            kinds("let_x"),
+            vec![TokenKind::Ident("let_x".to_string()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("letter"),
+            vec![TokenKind::Ident("letter".to_string()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn eq_token() {
+        assert_eq!(kinds("="), vec![TokenKind::Eq, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn semicolon_token() {
+        assert_eq!(kinds(";"), vec![TokenKind::Semicolon, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn let_statement_tokens() {
+        assert_eq!(
+            kinds("let x = 42;"),
+            vec![
+                TokenKind::Let,
+                TokenKind::Ident("x".to_string()),
+                TokenKind::Eq,
+                TokenKind::Integer(42),
+                TokenKind::Semicolon,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn semicolon_span() {
+        let (tokens, _) = Lexer::new("x;").tokenize();
+        assert_eq!(tokens[1].span.start, 1);
+        assert_eq!(tokens[1].span.end,   2);
     }
 }
