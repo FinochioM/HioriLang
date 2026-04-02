@@ -4,5 +4,6 @@ members = [
     "crates/hiori_parser",
     "crates/hiori_diagnostics",
     "crates/hiori_cli",
+    "crates/hiori_sema"
 ]
 resolver = "2"
