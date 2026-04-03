@@ -68,6 +68,8 @@ impl<'src> Lexer<'src> {
 
         let kind = match text.as_str() {
             "let" => TokenKind::Let,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
             _     => TokenKind::Ident(text),
         };
 
@@ -89,7 +91,40 @@ impl<'src> Lexer<'src> {
             '/' => Token::new(TokenKind::Slash,     start, start + 1),
             '(' => Token::new(TokenKind::LParen,    start, start + 1),
             ')' => Token::new(TokenKind::RParen,    start, start + 1),
-            '=' => Token::new(TokenKind::Eq,        start, start + 1),
+            '=' => {
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::EqEq, start, start + 2)
+                } else {
+                    Token::new(TokenKind::Eq, start, start + 1)
+                }
+            },
+            '!' => {
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::BangEq, start, start + 2)
+                } else {
+                    let end = start + 1;
+                    self.diagnostics.push(Diagnostic::error("unknown character '!'", Span::new(start, end)));
+                    Token::new(TokenKind::Unknown('!'), start, end)
+                }
+            }
+            '<' => {
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::LtEq, start, start + 2)
+                } else {
+                    Token::new(TokenKind::Lt, start, start + 1)
+                }
+            }
+            '>' => {
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::GtEq, start, start + 2)
+                } else {
+                    Token::new(TokenKind::Gt, start, start + 1)
+                }
+            }
             ';' => Token::new(TokenKind::Semicolon, start, start + 1),
 
             c if c.is_ascii_digit()            => self.read_integer(start, c),
@@ -251,5 +286,87 @@ mod tests {
         let (tokens, _) = Lexer::new("x;").tokenize();
         assert_eq!(tokens[1].span.start, 1);
         assert_eq!(tokens[1].span.end,   2);
+    }
+
+    #[test]
+    fn eqeq_token() {
+        assert_eq!(kinds("=="), vec![TokenKind::EqEq, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn bang_eq_token() {
+        assert_eq!(kinds("!="), vec![TokenKind::BangEq, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn lt_token() {
+        assert_eq!(kinds("<"), vec![TokenKind::Lt, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn lt_eq_token() {
+        assert_eq!(kinds("<="), vec![TokenKind::LtEq, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn gt_token() {
+        assert_eq!(kinds(">"), vec![TokenKind::Gt, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn gt_eq_token() {
+        assert_eq!(kinds(">="), vec![TokenKind::GtEq, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn true_keyword() {
+        assert_eq!(kinds("true"), vec![TokenKind::True, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn false_keyword() {
+        assert_eq!(kinds("false"), vec![TokenKind::False, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn single_eq_is_not_eqeq() {
+        assert_eq!(kinds("="), vec![TokenKind::Eq, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn bang_alone_produces_diagnostic() {
+        let (_, diags) = tokenize("!");
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains('!'));
+    }
+
+    #[test]
+    fn true_prefix_stays_ident() {
+        assert_eq!(
+            kinds("true_x"),
+            vec![TokenKind::Ident("true_x".to_string()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn false_prefix_stays_ident() {
+        assert_eq!(
+            kinds("falsehood"),
+            vec![TokenKind::Ident("falsehood".to_string()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn eqeq_span() {
+        let (tokens, _) = Lexer::new("==").tokenize();
+        assert_eq!(tokens[0].span.start, 0);
+        assert_eq!(tokens[0].span.end,   2);
+    }
+
+    #[test]
+    fn bang_eq_span() {
+        let (tokens, _) = Lexer::new("!=").tokenize();
+        assert_eq!(tokens[0].span.start, 0);
+        assert_eq!(tokens[0].span.end,   2);
     }
 }

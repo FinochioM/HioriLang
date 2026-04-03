@@ -2,17 +2,19 @@ use std::collections::HashMap;
 use std::fmt;
  
 use hiori_diagnostics::Diagnostic;
-use hiori_parser::{BinOp, Expr, Node, Program, Stmt};
+use hiori_parser::{BinOp, CmpOp, Expr, Node, Program, Stmt};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
+    Bool(bool),
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(n) => write!(f, "{}", n),
+            Value::Bool(b) => write!(f, "{}", b),
         }
     }
 }
@@ -61,19 +63,45 @@ impl Interpreter {
     fn eval_expr(&mut self, node: &Node<Expr>) -> Result<Value, Diagnostic> {
         match &node.inner {
             Expr::Integer(n) => Ok(Value::Int(*n)),
+            Expr::Bool(b) => Ok(Value::Bool(*b)),
 
             Expr::Ident(name) => {
                 Ok(self.env[name.as_str()].clone())
             }
 
             Expr::Neg(operand) => {
-                let Value::Int(v) = self.eval_expr(operand)?;
+                let Value::Int(v) = self.eval_expr(operand) ? else {
+                    unreachable!("type checker guarantess Neg operand is Int")
+                };
+
                 Ok(Value::Int(v.wrapping_neg()))
             }
 
+            Expr::Compare { op, left, right, .. } => {
+                let Value::Int(l) = self.eval_expr(left)? else {
+                    unreachable!("type checker guarantees Compare left operand is Int")
+                };
+                let Value::Int(r) = self.eval_expr(right)? else {
+                    unreachable!("type checker guarantees Compare right operand is Int")
+                };
+                let result = match op {
+                    CmpOp::Eq => l == r,
+                    CmpOp::Ne => l != r,
+                    CmpOp::Lt => l <  r,
+                    CmpOp::Le => l <= r,
+                    CmpOp::Gt => l >  r,
+                    CmpOp::Ge => l >= r,
+                };
+                Ok(Value::Bool(result))
+            }
+
             Expr::Binary { op, op_span, left, right } => {
-                let Value::Int(l) = self.eval_expr(left)?;
-                let Value::Int(r) = self.eval_expr(right)?;
+                let Value::Int(l) = self.eval_expr(left)? else {
+                    unreachable!("type checker guarantees Binary left operand is Int")
+                };
+                let Value::Int(r) = self.eval_expr(right)? else {
+                    unreachable!("type checker guarantees Binary right operand is Int")
+                };
 
                 let result = match op {
                     BinOp::Add => l.wrapping_add(r),
@@ -209,5 +237,42 @@ mod tests {
         let err = run("let x = 0;\n10 / x;").unwrap_err();
         assert_eq!(err.span.start, 14);
         assert_eq!(err.span.end,   15);
+    }
+
+    #[test]
+    fn bool_true_literal_is_ok() {
+        assert!(run("true;").is_ok());
+    }
+
+    #[test]
+    fn bool_false_literal_is_ok() {
+        assert!(run("false;").is_ok());
+    }
+
+    #[test]
+    fn comparison_less_than_true_is_ok() {
+        assert!(run("1 < 2;").is_ok());
+    }
+
+    #[test]
+    fn comparison_less_than_false_is_ok() {
+        assert!(run("2 < 1;").is_ok());
+    }
+
+    #[test]
+    fn bool_in_let_binding_is_ok() {
+        assert!(run("let b = 1 < 2;\nb;").is_ok());
+    }
+
+    #[test]
+    fn all_comparison_operators_are_ok() {
+        assert!(run(
+            "let a = 3;\nlet b = 5;\na == b;\na != b;\na < b;\na <= b;\na > b;\na >= b;"
+        ).is_ok());
+    }
+
+    #[test]
+    fn equal_integers_produce_true() {
+        assert!(run("let x = 7;\nlet y = 7;\nx == y;").is_ok());
     }
 }

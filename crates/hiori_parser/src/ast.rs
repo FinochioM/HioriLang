@@ -20,12 +20,29 @@ pub enum BinOp {
     Div, // /
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CmpOp {
+    Eq, //==
+    Ne, // !=
+    Lt, //
+    Le, // <= 
+    Gt, // >
+    Ge, // >=
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Integer(i64),
+    Bool(bool),
     Ident(String),
     Binary {
         op: BinOp,
+        op_span: Span,
+        left: Box<Node<Expr>>,
+        right: Box<Node<Expr>>,
+    },
+    Compare {
+        op: CmpOp,
         op_span: Span,
         left: Box<Node<Expr>>,
         right: Box<Node<Expr>>,

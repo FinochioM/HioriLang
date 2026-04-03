@@ -2,14 +2,22 @@ use hiori_diagnostics::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    Integer(i64),
+Integer(i64),
     Ident(String),
     Let,
+    True,
+    False,
     Plus,
     Minus,
     Star,
     Slash,
     Eq,
+    EqEq,
+    BangEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
     LParen,
     RParen,
     Semicolon,

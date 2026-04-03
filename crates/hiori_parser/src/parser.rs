@@ -1,7 +1,7 @@
 use hiori_diagnostics::{Diagnostic, Span};
 use hiori_lexer::{Token, TokenKind};
 
-use crate::ast::{BinOp, Expr, Node, Program, Stmt};
+use crate::ast::{BinOp, CmpOp, Expr, Node, Program, Stmt};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -141,7 +141,34 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Option<Node<Expr>> {
-        self.parse_additive()
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Option<Node<Expr>> {
+        let mut left = self.parse_additive()?;
+
+        loop {
+            let op = match self.peek_kind() {
+                TokenKind::EqEq => CmpOp::Eq,
+                TokenKind::BangEq => CmpOp::Ne,
+                TokenKind::Lt => CmpOp::Lt,
+                TokenKind::LtEq => CmpOp::Le,
+                TokenKind::Gt => CmpOp::Gt,
+                TokenKind::GtEq => CmpOp::Ge,
+                _ => break,
+            };
+
+            let op_span = self.current_span();
+            self.advance();
+            let right = self.parse_additive()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = Node::new(
+                Expr::Compare { op, op_span, left: Box::new(left), right: Box::new(right) },
+                span,
+            );
+        }
+
+        Some(left)
     }
 
     fn parse_additive(&mut self) -> Option<Node<Expr>> {
@@ -224,6 +251,16 @@ impl Parser {
                     self.error("expected ')'", self.current_span());
                 }
                 inner
+            }
+
+            TokenKind::True => {
+                self.advance();
+                Some(Node::new(Expr::Bool(true), span))
+            }
+
+            TokenKind::False => {
+                self.advance();
+                Some(Node::new(Expr::Bool(false), span))
             }
 
             TokenKind::Unknown(_) => {
@@ -596,5 +633,113 @@ mod tests {
             }
             _ => panic!("expected Let"),
         }
+    }
+
+    #[test]
+    fn parse_true() {
+        let (expr, diags) = parse_expr("true");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Bool(true)));
+    }
+
+    #[test]
+    fn parse_false() {
+        let (expr, diags) = parse_expr("false");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Bool(false)));
+    }
+
+    #[test]
+    fn parse_less_than() {
+        let (expr, diags) = parse_expr("1 < 2");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Lt, .. }));
+    }
+
+    #[test]
+    fn parse_equal_equal() {
+        let (expr, diags) = parse_expr("1 == 2");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Eq, .. }));
+    }
+
+    #[test]
+    fn parse_not_equal() {
+        let (expr, diags) = parse_expr("1 != 2");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Ne, .. }));
+    }
+
+    #[test]
+    fn parse_less_than_or_equal() {
+        let (expr, diags) = parse_expr("1 <= 2");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Le, .. }));
+    }
+
+    #[test]
+    fn parse_greater_than() {
+        let (expr, diags) = parse_expr("1 > 2");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Gt, .. }));
+    }
+
+    #[test]
+    fn parse_greater_than_or_equal() {
+        let (expr, diags) = parse_expr("1 >= 2");
+        assert!(diags.is_empty());
+        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Ge, .. }));
+    }
+
+    #[test]
+    fn comparison_lower_precedence_than_addition() {
+        let (expr, diags) = parse_expr("1 + 2 < 3 + 4");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Compare { op: CmpOp::Lt, ref left, ref right, .. } => {
+                assert!(matches!(left.inner, Expr::Binary { op: BinOp::Add, .. }));
+                assert!(matches!(right.inner, Expr::Binary { op: BinOp::Add, .. }));
+            }
+            _ => panic!("expected Compare at root"),
+        }
+    }
+
+    #[test]
+    fn chained_comparison_parses_left_associatively() {
+        let (expr, diags) = parse_expr("1 < 2 < 3");
+        assert!(diags.is_empty());
+        let node = expr.unwrap();
+        match node.inner {
+            Expr::Compare { op: CmpOp::Lt, ref left, .. } => {
+                assert!(matches!(left.inner, Expr::Compare { op: CmpOp::Lt, .. }));
+            }
+            _ => panic!("expected Compare at root"),
+        }
+    }
+
+    #[test]
+    fn let_with_bool_literal() {
+        let (program, diags) = parse_program("let b = true;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
+        match &program.stmts[0].inner {
+            Stmt::Let { name, value, .. } => {
+                assert_eq!(name, "b");
+                assert!(matches!(value.inner, Expr::Bool(true)));
+            }
+            _ => panic!("expected Let"),
+        }
+    }
+
+    #[test]
+    fn compare_span() {
+        let (tokens, mut lex_diags) = Lexer::new("1 < 2").tokenize();
+        let mut parser = Parser::new(tokens);
+        let node = parser.parse().unwrap();
+        lex_diags.extend(parser.finish());
+        assert!(lex_diags.is_empty());
+        assert_eq!(node.span.start, 0);
+        assert_eq!(node.span.end,   5);
     }
 }

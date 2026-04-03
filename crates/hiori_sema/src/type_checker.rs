@@ -6,6 +6,7 @@ use hiori_parser::{Expr, Node, Program, Stmt};
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Type {
     Int,
+    Bool,
 }
 
 pub fn type_check(program: &Program) -> Vec<Diagnostic> {
@@ -54,6 +55,8 @@ impl TypeChecker {
         fn check_expr(&mut self, node: &Node<Expr>) -> Option<Type> {
         match &node.inner {
             Expr::Integer(_) => Some(Type::Int),
+
+            Expr::Bool(_) => Some(Type::Bool),
  
             Expr::Ident(name) => {
                 match self.env.get(name.as_str()).copied() {
@@ -100,6 +103,28 @@ impl TypeChecker {
                 }
  
                 Some(Type::Int)
+            }
+
+            Expr::Compare { op, left, right, .. } => {
+                let left_ty = self.check_expr(left)?;
+                let right_ty = self.check_expr(right)?;
+
+                if left_ty != Type::Int {
+                    self.error(
+                        format!("operator '{:?}' requires Int on left, got {:?}", op, left_ty),
+                        left.span.clone(),
+                    );
+                    return None;
+                }
+                if right_ty != Type::Int {
+                    self.error(
+                        format!("operator '{:?}' requires Int on right, got {:?}", op, right_ty),
+                        right.span.clone(),
+                    );
+                    return None;
+                }
+
+                Some(Type::Bool)
             }
         }
     }
@@ -215,5 +240,65 @@ mod tests {
         assert!(type_check_source(
             "let x = (1 + 2) * (3 - 4) / -5;"
         ).is_empty());
+    }
+
+    #[test]
+    fn bool_literal_true() {
+        assert!(type_check_source("let b = true;").is_empty());
+    }
+
+    #[test]
+    fn bool_literal_false() {
+        assert!(type_check_source("let b = false;").is_empty());
+    }
+
+    #[test]
+    fn comparison_int_int_produces_bool() {
+        assert!(type_check_source("let b = 1 < 2;").is_empty());
+        assert!(type_check_source("let b = 1 == 2;").is_empty());
+        assert!(type_check_source("let b = 1 != 2;").is_empty());
+        assert!(type_check_source("let b = 1 <= 2;").is_empty());
+        assert!(type_check_source("let b = 1 >= 2;").is_empty());
+        assert!(type_check_source("let b = 1 > 2;").is_empty());
+    }
+
+    #[test]
+    fn comparison_with_bound_name_is_valid() {
+        assert!(type_check_source("let x = 3;\nlet b = x < 10;").is_empty());
+    }
+
+    #[test]
+    fn bool_stored_and_used_in_expr_stmt() {
+        assert!(type_check_source("let b = true;\nb;").is_empty());
+    }
+
+    #[test]
+    fn bool_in_binary_left_is_type_error() {
+        let diags = type_check_source("let b = true;\nlet x = b + 1;");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn bool_in_binary_right_is_type_error() {
+        let diags = type_check_source("let b = true;\nlet x = 1 + b;");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn neg_bool_is_type_error() {
+        let diags = type_check_source("let b = true;\nlet x = -b;");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn chained_comparison_is_type_error() {
+        let diags = type_check_source("let b = 1 < 2 < 3;");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn bool_as_compare_left_operand_is_type_error() {
+        let diags = type_check_source("let b = true;\nlet x = b < 1;");
+        assert!(!diags.is_empty());
     }
 }

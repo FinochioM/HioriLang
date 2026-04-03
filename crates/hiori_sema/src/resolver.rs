@@ -68,9 +68,9 @@ impl Resolver {
                 }
             }
 
-            Expr::Integer(_) => {}
+            Expr::Integer(_) | Expr::Bool(_) => {}
 
-            Expr::Binary { left, right, .. } => {
+            Expr::Binary { left, right, .. } | Expr::Compare { left, right, .. } => {
                 self.resolve_expr(left);
                 self.resolve_expr(right);
             }
@@ -241,5 +241,33 @@ mod tests {
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].span.start, 0);
         assert_eq!(diags[0].span.end,   1);
+    }
+
+    #[test]
+    fn bool_literal_is_valid() {
+        assert!(resolve_source("let b = true;").is_empty());
+        assert!(resolve_source("let b = false;").is_empty());
+    }
+
+    #[test]
+    fn comparison_with_literals_is_valid() {
+        assert!(resolve_source("let b = 1 < 2;").is_empty());
+    }
+
+    #[test]
+    fn comparison_with_bound_names_is_valid() {
+        assert!(resolve_source("let x = 1;\nlet b = x < 2;").is_empty());
+    }
+
+    #[test]
+    fn undefined_name_in_comparison_is_error() {
+        let diags = resolve_source("let b = z < 2;");
+        assert!(has_error(&diags, "undefined name 'z'"));
+    }
+
+    #[test]
+    fn undefined_name_in_comparison_right_is_error() {
+        let diags = resolve_source("let b = 1 < z;");
+        assert!(has_error(&diags, "undefined name 'z'"));
     }
 }
