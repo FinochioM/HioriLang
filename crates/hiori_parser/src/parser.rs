@@ -153,11 +153,12 @@ impl Parser {
                 TokenKind::Minus => BinOp::Sub,
                 _ => break,
             };
+            let op_span = self.current_span();
             self.advance();
             let right = self.parse_multiplicative()?;
             let span = Span::new(left.span.start, right.span.end);
             left = Node::new(
-                Expr::Binary { op, left: Box::new(left), right: Box::new(right) },
+                Expr::Binary { op, op_span, left: Box::new(left), right: Box::new(right) },
                 span,
             );
         }
@@ -174,11 +175,12 @@ impl Parser {
                 TokenKind::Slash => BinOp::Div,
                 _ => break,
             };
+            let op_span = self.current_span();
             self.advance();
             let right = self.parse_unary()?;
             let span = Span::new(left.span.start, right.span.end);
             left = Node::new(
-                Expr::Binary { op, left: Box::new(left), right: Box::new(right) },
+                Expr::Binary { op, op_span, left: Box::new(left), right: Box::new(right) },
                 span,
             );
         }

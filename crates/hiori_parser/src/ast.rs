@@ -26,6 +26,7 @@ pub enum Expr {
     Ident(String),
     Binary {
         op: BinOp,
+        op_span: Span,
         left: Box<Node<Expr>>,
         right: Box<Node<Expr>>,
     },

@@ -80,7 +80,7 @@ impl TypeChecker {
                 Some(Type::Int)
             }
  
-            Expr::Binary { op, left, right } => {
+            Expr::Binary { op, left, right , ..} => {
                 let left_ty  = self.check_expr(left)?;
                 let right_ty = self.check_expr(right)?;
  

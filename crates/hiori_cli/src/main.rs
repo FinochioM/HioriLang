@@ -2,7 +2,7 @@ use std::process;
 use hiori_diagnostics::report;
 use hiori_lexer::Lexer;
 use hiori_parser::Parser;
-use hiori_sema::{resolve, type_check};
+use hiori_sema::{resolve, type_check, interpret};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -40,5 +40,9 @@ fn main() {
         process::exit(1);
     }
 
-    println!("{:#?}", program);
+    if let Err(diagnostic) = interpret(&program) {
+        report(&source, &std::slice::from_ref(&diagnostic));
+
+        process::exit(1);
+    }
 }
