@@ -34,15 +34,17 @@ impl Resolver {
 
     fn resolve_stmt(&mut self, node: &Node<Stmt>) {
         match &node.inner {
-            Stmt::Let { name, name_span, value } => {
+            Stmt::Let {
+                name,
+                name_span,
+                value,
+            } => {
                 self.resolve_expr(value);
                 if let Some(prior_span) = self.defined.get(name) {
                     self.error(
                         format!(
                             "name '{}' is already defined (first defined at {}:{})",
-                            name,
-                            prior_span.start,
-                            prior_span.end,
+                            name, prior_span.start, prior_span.end,
                         ),
                         name_span.clone(),
                     );
@@ -55,12 +57,20 @@ impl Resolver {
                 self.resolve_expr(expr);
             }
 
-            Stmt::If { condition, then_block, else_block } => {
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
                 self.resolve_expr(condition);
                 self.resolve_block(then_block);
                 if let Some(block) = else_block {
                     self.resolve_block(block);
                 }
+            }
+
+            Stmt::Block(block) => {
+                self.resolve_block(block);
             }
         }
     }
@@ -78,10 +88,7 @@ impl Resolver {
         match &node.inner {
             Expr::Ident(name) => {
                 if !self.defined.contains_key(name.as_str()) {
-                    self.error(
-                        format!("undefined name '{}'", name),
-                        node.span.clone(),
-                    );
+                    self.error(format!("undefined name '{}'", name), node.span.clone());
                 }
             }
 
@@ -158,9 +165,7 @@ mod tests {
 
     #[test]
     fn complex_expr_with_all_bound_names_is_valid() {
-        assert!(resolve_source(
-            "let a = 1;\nlet b = 2;\nlet c = (a + b) * -(a + 1);"
-        ).is_empty());
+        assert!(resolve_source("let a = 1;\nlet b = 2;\nlet c = (a + b) * -(a + 1);").is_empty());
     }
 
     #[test]
@@ -229,7 +234,7 @@ mod tests {
         let diags = resolve_source("let x = 1;\nlet x = 2;");
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].span.start, 15);
-        assert_eq!(diags[0].span.end,   16);
+        assert_eq!(diags[0].span.end, 16);
     }
 
     #[test]
@@ -241,7 +246,13 @@ mod tests {
     #[test]
     fn three_bindings_same_name_reports_two_errors() {
         let diags = resolve_source("let x = 1;\nlet x = 2;\nlet x = 3;");
-        assert_eq!(diags.iter().filter(|d| d.message.contains("already defined")).count(), 2);
+        assert_eq!(
+            diags
+                .iter()
+                .filter(|d| d.message.contains("already defined"))
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -249,7 +260,7 @@ mod tests {
         let diags = resolve_source("let x = y;");
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].span.start, 8);
-        assert_eq!(diags[0].span.end,   9);
+        assert_eq!(diags[0].span.end, 9);
     }
 
     #[test]
@@ -257,7 +268,7 @@ mod tests {
         let diags = resolve_source("x + 1;");
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].span.start, 0);
-        assert_eq!(diags[0].span.end,   1);
+        assert_eq!(diags[0].span.end, 1);
     }
 
     #[test]
@@ -367,8 +378,66 @@ mod tests {
 
     #[test]
     fn both_blocks_are_resolved_independently() {
-        assert!(resolve_source(
-            "if true { let a = 1; } else { let b = 2; }"
-        ).is_empty());
+        assert!(resolve_source("if true { let a = 1; } else { let b = 2; }").is_empty());
+    }
+
+    #[test]
+    fn empty_block_stmt_is_valid() {
+        assert!(resolve_source("{ }").is_empty());
+    }
+
+    #[test]
+    fn block_stmt_with_literal_is_valid() {
+        assert!(resolve_source("{ 1; }").is_empty());
+    }
+
+    #[test]
+    fn outer_binding_usable_inside_block_stmt() {
+        assert!(resolve_source("let a = 1;\n{ a; }").is_empty());
+    }
+
+    #[test]
+    fn outer_binding_usable_after_block_stmt() {
+        assert!(resolve_source("let a = 1;\n{ }\na;").is_empty());
+    }
+
+    #[test]
+    fn binding_in_block_stmt_not_visible_after() {
+        let diags = resolve_source("{ let x = 1; }\nx;");
+        assert!(has_error(&diags, "undefined name 'x'"));
+    }
+
+    #[test]
+    fn rebinding_outer_name_in_block_stmt_is_error() {
+        let diags = resolve_source("let x = 1;\n{ let x = 2; }");
+        assert!(has_error(&diags, "name 'x' is already defined"));
+    }
+
+    #[test]
+    fn two_consecutive_blocks_may_reuse_name() {
+        assert!(resolve_source("{ let x = 1; }\n{ let x = 2; }").is_empty());
+    }
+
+    #[test]
+    fn nested_block_stmt_inner_binding_not_visible_in_outer() {
+        let diags = resolve_source("{ { let y = 1; }\ny; }");
+        assert!(has_error(&diags, "undefined name 'y'"));
+    }
+
+    #[test]
+    fn nested_block_stmt_no_shadowing_is_error() {
+        let diags = resolve_source("{ let a = 1;\n{ let a = 2; } }");
+        assert!(has_error(&diags, "name 'a' is already defined"));
+    }
+
+    #[test]
+    fn block_stmt_followed_by_let_and_expr() {
+        assert!(resolve_source("let a = 1;\n{ let b = 2; }\na;").is_empty());
+    }
+
+    #[test]
+    fn undefined_name_inside_block_stmt_is_error() {
+        let diags = resolve_source("{ z; }");
+        assert!(has_error(&diags, "undefined name 'z'"));
     }
 }

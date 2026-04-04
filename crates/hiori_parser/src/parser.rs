@@ -12,7 +12,11 @@ pub struct Parser {
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         assert!(!tokens.is_empty(), "token list must contain at least Eof");
-        Self { tokens, pos: 0, diagnostics: Vec::new() }
+        Self {
+            tokens,
+            pos: 0,
+            diagnostics: Vec::new(),
+        }
     }
 
     fn peek_kind(&self) -> &TokenKind {
@@ -20,7 +24,9 @@ impl Parser {
     }
 
     fn current_span(&self) -> Span {
-        self.tokens[self.pos.min(self.tokens.len() - 1)].span.clone()
+        self.tokens[self.pos.min(self.tokens.len() - 1)]
+            .span
+            .clone()
     }
 
     fn advance(&mut self) -> Token {
@@ -85,7 +91,8 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::Let => self.parse_let_stmt(),
             TokenKind::If => self.parse_if_stmt(),
-            _              => self.parse_expr_stmt(),
+            TokenKind::LBrace => self.parse_block_stmt(),
+            _ => self.parse_expr_stmt(),
         }
     }
 
@@ -114,7 +121,11 @@ impl Parser {
 
         let span = Span::new(let_span.start, value.span.end);
         Some(Node::new(
-            Stmt::Let { name, name_span, value: Box::new(value) },
+            Stmt::Let {
+                name,
+                name_span,
+                value: Box::new(value),
+            },
             span,
         ))
     }
@@ -137,11 +148,14 @@ impl Parser {
         };
 
         let span = Span::new(if_span.start, end);
-        Some(Node::new(Stmt::If {
-            condition: Box::new(condition),
-            then_block,
-            else_block,
-        }, span))
+        Some(Node::new(
+            Stmt::If {
+                condition: Box::new(condition),
+                then_block,
+                else_block,
+            },
+            span,
+        ))
     }
 
     fn parse_block(&mut self) -> Option<(Block, usize)> {
@@ -171,6 +185,13 @@ impl Parser {
             self.error("expected '}'", span);
             None
         }
+    }
+
+    fn parse_block_stmt(&mut self) -> Option<Node<Stmt>> {
+        let start = self.current_span().start;
+        let (block, end) = self.parse_block()?;
+
+        Some(Node::new(Stmt::Block(block), Span::new(start, end)))
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Node<Stmt>> {
@@ -218,7 +239,12 @@ impl Parser {
             let right = self.parse_additive()?;
             let span = Span::new(left.span.start, right.span.end);
             left = Node::new(
-                Expr::Compare { op, op_span, left: Box::new(left), right: Box::new(right) },
+                Expr::Compare {
+                    op,
+                    op_span,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
                 span,
             );
         }
@@ -231,7 +257,7 @@ impl Parser {
 
         loop {
             let op = match self.peek_kind() {
-                TokenKind::Plus  => BinOp::Add,
+                TokenKind::Plus => BinOp::Add,
                 TokenKind::Minus => BinOp::Sub,
                 _ => break,
             };
@@ -240,7 +266,12 @@ impl Parser {
             let right = self.parse_multiplicative()?;
             let span = Span::new(left.span.start, right.span.end);
             left = Node::new(
-                Expr::Binary { op, op_span, left: Box::new(left), right: Box::new(right) },
+                Expr::Binary {
+                    op,
+                    op_span,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
                 span,
             );
         }
@@ -253,7 +284,7 @@ impl Parser {
 
         loop {
             let op = match self.peek_kind() {
-                TokenKind::Star  => BinOp::Mul,
+                TokenKind::Star => BinOp::Mul,
                 TokenKind::Slash => BinOp::Div,
                 _ => break,
             };
@@ -262,7 +293,12 @@ impl Parser {
             let right = self.parse_unary()?;
             let span = Span::new(left.span.start, right.span.end);
             left = Node::new(
-                Expr::Binary { op, op_span, left: Box::new(left), right: Box::new(right) },
+                Expr::Binary {
+                    op,
+                    op_span,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
                 span,
             );
         }
@@ -369,7 +405,10 @@ mod tests {
     fn parse_addition() {
         let (expr, diags) = parse_expr("1 + 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Binary { op: BinOp::Add, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Binary { op: BinOp::Add, .. }
+        ));
     }
 
     #[test]
@@ -378,7 +417,11 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Binary { op: BinOp::Add, right, .. } => {
+            Expr::Binary {
+                op: BinOp::Add,
+                right,
+                ..
+            } => {
                 assert!(matches!(right.inner, Expr::Binary { op: BinOp::Mul, .. }));
             }
             _ => panic!("expected Add at root"),
@@ -391,7 +434,11 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Binary { op: BinOp::Mul, left, .. } => {
+            Expr::Binary {
+                op: BinOp::Mul,
+                left,
+                ..
+            } => {
                 assert!(matches!(left.inner, Expr::Binary { op: BinOp::Add, .. }));
             }
             _ => panic!("expected Mul at root"),
@@ -468,7 +515,11 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Binary { op: BinOp::Mul, left, .. } => {
+            Expr::Binary {
+                op: BinOp::Mul,
+                left,
+                ..
+            } => {
                 assert!(matches!(left.inner, Expr::Neg(_)));
             }
             _ => panic!("expected Mul at root"),
@@ -481,7 +532,11 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Binary { op: BinOp::Add, right, .. } => {
+            Expr::Binary {
+                op: BinOp::Add,
+                right,
+                ..
+            } => {
                 assert!(matches!(right.inner, Expr::Neg(_)));
             }
             _ => panic!("expected Add at root"),
@@ -494,7 +549,11 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Binary { op: BinOp::Sub, right, .. } => {
+            Expr::Binary {
+                op: BinOp::Sub,
+                right,
+                ..
+            } => {
                 assert!(matches!(right.inner, Expr::Neg(_)));
             }
             _ => panic!("expected Sub at root"),
@@ -684,7 +743,7 @@ mod tests {
         match &program.stmts[0].inner {
             Stmt::Let { name_span, .. } => {
                 assert_eq!(name_span.start, 4);
-                assert_eq!(name_span.end,   5);
+                assert_eq!(name_span.end, 5);
             }
             _ => panic!("expected Let"),
         }
@@ -708,42 +767,60 @@ mod tests {
     fn parse_less_than() {
         let (expr, diags) = parse_expr("1 < 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Lt, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Compare { op: CmpOp::Lt, .. }
+        ));
     }
 
     #[test]
     fn parse_equal_equal() {
         let (expr, diags) = parse_expr("1 == 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Eq, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Compare { op: CmpOp::Eq, .. }
+        ));
     }
 
     #[test]
     fn parse_not_equal() {
         let (expr, diags) = parse_expr("1 != 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Ne, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Compare { op: CmpOp::Ne, .. }
+        ));
     }
 
     #[test]
     fn parse_less_than_or_equal() {
         let (expr, diags) = parse_expr("1 <= 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Le, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Compare { op: CmpOp::Le, .. }
+        ));
     }
 
     #[test]
     fn parse_greater_than() {
         let (expr, diags) = parse_expr("1 > 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Gt, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Compare { op: CmpOp::Gt, .. }
+        ));
     }
 
     #[test]
     fn parse_greater_than_or_equal() {
         let (expr, diags) = parse_expr("1 >= 2");
         assert!(diags.is_empty());
-        assert!(matches!(expr.unwrap().inner, Expr::Compare { op: CmpOp::Ge, .. }));
+        assert!(matches!(
+            expr.unwrap().inner,
+            Expr::Compare { op: CmpOp::Ge, .. }
+        ));
     }
 
     #[test]
@@ -752,7 +829,12 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Compare { op: CmpOp::Lt, ref left, ref right, .. } => {
+            Expr::Compare {
+                op: CmpOp::Lt,
+                ref left,
+                ref right,
+                ..
+            } => {
                 assert!(matches!(left.inner, Expr::Binary { op: BinOp::Add, .. }));
                 assert!(matches!(right.inner, Expr::Binary { op: BinOp::Add, .. }));
             }
@@ -766,7 +848,11 @@ mod tests {
         assert!(diags.is_empty());
         let node = expr.unwrap();
         match node.inner {
-            Expr::Compare { op: CmpOp::Lt, ref left, .. } => {
+            Expr::Compare {
+                op: CmpOp::Lt,
+                ref left,
+                ..
+            } => {
                 assert!(matches!(left.inner, Expr::Compare { op: CmpOp::Lt, .. }));
             }
             _ => panic!("expected Compare at root"),
@@ -795,7 +881,7 @@ mod tests {
         lex_diags.extend(parser.finish());
         assert!(lex_diags.is_empty());
         assert_eq!(node.span.start, 0);
-        assert_eq!(node.span.end,   5);
+        assert_eq!(node.span.end, 5);
     }
 
     #[test]
@@ -811,7 +897,11 @@ mod tests {
         let (program, diags) = parse_program("if true { 1; }");
         assert!(diags.is_empty());
         match &program.stmts[0].inner {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 assert_eq!(then_block.stmts.len(), 1);
                 assert!(else_block.is_none());
             }
@@ -824,7 +914,11 @@ mod tests {
         let (program, diags) = parse_program("if true { 1; } else { 2; }");
         assert!(diags.is_empty());
         match &program.stmts[0].inner {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 assert_eq!(then_block.stmts.len(), 1);
                 assert!(else_block.is_some());
                 assert_eq!(else_block.as_ref().unwrap().stmts.len(), 1);
@@ -860,8 +954,7 @@ mod tests {
 
     #[test]
     fn parse_else_if_pattern() {
-        let (program, diags) =
-            parse_program("if true { 1; } else { if false { 2; } else { 3; } }");
+        let (program, diags) = parse_program("if true { 1; } else { if false { 2; } else { 3; } }");
         assert!(diags.is_empty());
         match &program.stmts[0].inner {
             Stmt::If { else_block, .. } => {
@@ -899,7 +992,7 @@ mod tests {
         assert!(diags.is_empty());
         let node = &program.stmts[0];
         assert_eq!(node.span.start, 0);
-        assert_eq!(node.span.end,   11);
+        assert_eq!(node.span.end, 11);
     }
 
     #[test]
@@ -908,7 +1001,7 @@ mod tests {
         assert!(diags.is_empty());
         let node = &program.stmts[0];
         assert_eq!(node.span.start, 0);
-        assert_eq!(node.span.end,   20);
+        assert_eq!(node.span.end, 20);
     }
 
     #[test]
@@ -927,5 +1020,90 @@ mod tests {
         assert_eq!(program.stmts.len(), 2);
         assert!(matches!(program.stmts[0].inner, Stmt::If { .. }));
         assert!(matches!(program.stmts[1].inner, Stmt::Let { .. }));
+    }
+
+    #[test]
+    fn parse_empty_block_stmt() {
+        let (program, diags) = parse_program("{ }");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
+        assert!(matches!(program.stmts[0].inner, Stmt::Block(_)));
+    }
+
+    #[test]
+    fn parse_block_stmt_with_body() {
+        let (program, diags) = parse_program("{ 1; }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::Block(block) => assert_eq!(block.stmts.len(), 1),
+            _ => panic!("expected Block"),
+        }
+    }
+
+    #[test]
+    fn parse_block_stmt_followed_by_let() {
+        let (program, diags) = parse_program("{ 1; }\nlet x = 2;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 2);
+        assert!(matches!(program.stmts[0].inner, Stmt::Block(_)));
+        assert!(matches!(program.stmts[1].inner, Stmt::Let { .. }));
+    }
+
+    #[test]
+    fn parse_two_consecutive_block_stmts() {
+        let (program, diags) = parse_program("{ 1; }\n{ 2; }");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 2);
+        assert!(matches!(program.stmts[0].inner, Stmt::Block(_)));
+        assert!(matches!(program.stmts[1].inner, Stmt::Block(_)));
+    }
+
+    #[test]
+    fn parse_nested_block_stmt() {
+        let (program, diags) = parse_program("{ { 1; } }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::Block(outer) => {
+                assert_eq!(outer.stmts.len(), 1);
+                assert!(matches!(outer.stmts[0].inner, Stmt::Block(_)));
+            }
+            _ => panic!("expected Block"),
+        }
+    }
+
+    #[test]
+    fn parse_block_stmt_span_covers_braces() {
+        let (program, diags) = parse_program("{ 1; }");
+        assert!(diags.is_empty());
+        let node = &program.stmts[0];
+        assert_eq!(node.span.start, 0);
+        assert_eq!(node.span.end, 6);
+    }
+
+    #[test]
+    fn parse_block_stmt_no_trailing_semicolon_needed() {
+        let (program, diags) = parse_program("{ }\nlet a = 1;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 2);
+    }
+
+    #[test]
+    fn parse_block_stmt_missing_rbrace_is_error() {
+        let (_, diags) = parse_program("{ 1;");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains('}')));
+    }
+
+    #[test]
+    fn parse_if_inside_block_stmt() {
+        let (program, diags) = parse_program("{ if true { 1; } }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::Block(block) => {
+                assert_eq!(block.stmts.len(), 1);
+                assert!(matches!(block.stmts[0].inner, Stmt::If { .. }));
+            }
+            _ => panic!("expected Block"),
+        }
     }
 }

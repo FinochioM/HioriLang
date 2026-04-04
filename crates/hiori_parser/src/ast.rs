@@ -25,7 +25,7 @@ pub enum CmpOp {
     Eq, //==
     Ne, // !=
     Lt, //
-    Le, // <= 
+    Le, // <=
     Gt, // >
     Ge, // >=
 }
@@ -68,7 +68,8 @@ pub enum Stmt {
         condition: Box<Node<Expr>>,
         then_block: Block,
         else_block: Option<Block>,
-    }
+    },
+    Block(Block),
 }
 
 #[derive(Debug, Clone, PartialEq)]

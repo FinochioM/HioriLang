@@ -1,5 +1,5 @@
 use std::collections::HashMap;
- 
+
 use hiori_diagnostics::{Diagnostic, Span};
 use hiori_parser::{Block, Expr, Node, Program, Stmt};
 
@@ -40,7 +40,7 @@ impl TypeChecker {
 
     fn check_stmt(&mut self, node: &Node<Stmt>) {
         match &node.inner {
-            Stmt::Let {name, value, ..} => {
+            Stmt::Let { name, value, .. } => {
                 if let Some(ty) = self.check_expr(value) {
                     self.env.insert(name.clone(), ty);
                 }
@@ -50,10 +50,17 @@ impl TypeChecker {
                 self.check_expr(expr);
             }
 
-            Stmt::If { condition, then_block, else_block } => {
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
                 if let Some(ty) = self.check_expr(condition) {
-                    if ty != Type::Bool { 
-                        self.error(format!("'if' condition must be Bool, got {:?}", ty), condition.span.clone());
+                    if ty != Type::Bool {
+                        self.error(
+                            format!("'if' condition must be Bool, got {:?}", ty),
+                            condition.span.clone(),
+                        );
                     }
                 }
 
@@ -61,6 +68,10 @@ impl TypeChecker {
                 if let Some(block) = else_block {
                     self.check_block(block);
                 }
+            }
+
+            Stmt::Block(block) => {
+                self.check_block(block);
             }
         }
     }
@@ -79,20 +90,18 @@ impl TypeChecker {
             Expr::Integer(_) => Some(Type::Int),
 
             Expr::Bool(_) => Some(Type::Bool),
- 
-            Expr::Ident(name) => {
-                match self.env.get(name.as_str()).copied() {
-                    Some(ty) => Some(ty),
-                    None => {
-                        self.error(
-                            format!("internal: name '{}' not in type environment", name),
-                            node.span.clone(),
-                        );
-                        None
-                    }
+
+            Expr::Ident(name) => match self.env.get(name.as_str()).copied() {
+                Some(ty) => Some(ty),
+                None => {
+                    self.error(
+                        format!("internal: name '{}' not in type environment", name),
+                        node.span.clone(),
+                    );
+                    None
                 }
-            }
- 
+            },
+
             Expr::Neg(operand) => {
                 let ty = self.check_expr(operand)?;
                 if ty != Type::Int {
@@ -104,43 +113,59 @@ impl TypeChecker {
                 }
                 Some(Type::Int)
             }
- 
-            Expr::Binary { op, left, right , ..} => {
-                let left_ty  = self.check_expr(left)?;
-                let right_ty = self.check_expr(right)?;
- 
-                if left_ty != Type::Int {
-                    self.error(
-                        format!("operator '{:?}' requires Int on left, got {:?}", op, left_ty),
-                        left.span.clone(),
-                    );
-                    return None;
-                }
-                if right_ty != Type::Int {
-                    self.error(
-                        format!("operator '{:?}' requires Int on right, got {:?}", op, right_ty),
-                        right.span.clone(),
-                    );
-                    return None;
-                }
- 
-                Some(Type::Int)
-            }
 
-            Expr::Compare { op, left, right, .. } => {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
                 let left_ty = self.check_expr(left)?;
                 let right_ty = self.check_expr(right)?;
 
                 if left_ty != Type::Int {
                     self.error(
-                        format!("operator '{:?}' requires Int on left, got {:?}", op, left_ty),
+                        format!(
+                            "operator '{:?}' requires Int on left, got {:?}",
+                            op, left_ty
+                        ),
                         left.span.clone(),
                     );
                     return None;
                 }
                 if right_ty != Type::Int {
                     self.error(
-                        format!("operator '{:?}' requires Int on right, got {:?}", op, right_ty),
+                        format!(
+                            "operator '{:?}' requires Int on right, got {:?}",
+                            op, right_ty
+                        ),
+                        right.span.clone(),
+                    );
+                    return None;
+                }
+
+                Some(Type::Int)
+            }
+
+            Expr::Compare {
+                op, left, right, ..
+            } => {
+                let left_ty = self.check_expr(left)?;
+                let right_ty = self.check_expr(right)?;
+
+                if left_ty != Type::Int {
+                    self.error(
+                        format!(
+                            "operator '{:?}' requires Int on left, got {:?}",
+                            op, left_ty
+                        ),
+                        left.span.clone(),
+                    );
+                    return None;
+                }
+                if right_ty != Type::Int {
+                    self.error(
+                        format!(
+                            "operator '{:?}' requires Int on right, got {:?}",
+                            op, right_ty
+                        ),
                         right.span.clone(),
                     );
                     return None;
@@ -157,7 +182,7 @@ mod tests {
     use super::*;
     use hiori_lexer::Lexer;
     use hiori_parser::Parser;
- 
+
     fn type_check_source(source: &str) -> Vec<Diagnostic> {
         let (tokens, _) = Lexer::new(source).tokenize();
         let mut parser = Parser::new(tokens);
@@ -170,98 +195,95 @@ mod tests {
         );
         type_check(&program)
     }
- 
+
     #[test]
     fn empty_program() {
         assert!(type_check_source("").is_empty());
     }
- 
+
     #[test]
     fn single_integer_literal() {
         assert!(type_check_source("let x = 42;").is_empty());
     }
- 
+
     #[test]
     fn negative_integer_literal() {
         assert!(type_check_source("let x = -1;").is_empty());
     }
- 
+
     #[test]
     fn double_negation() {
         assert!(type_check_source("let x = --1;").is_empty());
     }
- 
+
     #[test]
     fn binary_addition() {
         assert!(type_check_source("let x = 1 + 2;").is_empty());
     }
- 
+
     #[test]
     fn binary_subtraction() {
         assert!(type_check_source("let x = 10 - 3;").is_empty());
     }
- 
+
     #[test]
     fn binary_multiplication() {
         assert!(type_check_source("let x = 4 * 5;").is_empty());
     }
- 
+
     #[test]
     fn binary_division() {
         assert!(type_check_source("let x = 10 / 2;").is_empty());
     }
- 
+
     #[test]
     fn identifier_in_expression() {
         assert!(type_check_source("let x = 1;\nlet y = x;").is_empty());
     }
- 
+
     #[test]
     fn identifier_in_binary() {
         assert!(type_check_source("let a = 1;\nlet b = 2;\nlet c = a + b;").is_empty());
     }
- 
+
     #[test]
     fn identifier_negated() {
         assert!(type_check_source("let x = 5;\nlet y = -x;").is_empty());
     }
- 
+
     #[test]
     fn complex_nested_expression() {
-        assert!(type_check_source(
-            "let a = 1;\nlet b = 2;\nlet c = (a + b) * -(a + 1);"
-        ).is_empty());
+        assert!(
+            type_check_source("let a = 1;\nlet b = 2;\nlet c = (a + b) * -(a + 1);").is_empty()
+        );
     }
- 
+
     #[test]
     fn expression_statement_literal() {
         assert!(type_check_source("1 + 2;").is_empty());
     }
- 
+
     #[test]
     fn expression_statement_with_bound_name() {
         assert!(type_check_source("let x = 3;\nx + 1;").is_empty());
     }
- 
+
     #[test]
     fn mixed_let_and_expr_statements() {
-        assert!(type_check_source(
-            "let x = 10;\nlet y = x + 5;\ny * 2;"
-        ).is_empty());
+        assert!(type_check_source("let x = 10;\nlet y = x + 5;\ny * 2;").is_empty());
     }
- 
+
     #[test]
     fn long_binding_chain() {
-        assert!(type_check_source(
-            "let a = 1;\nlet b = a + 1;\nlet c = b + 1;\nlet d = c + 1;"
-        ).is_empty());
+        assert!(
+            type_check_source("let a = 1;\nlet b = a + 1;\nlet c = b + 1;\nlet d = c + 1;")
+                .is_empty()
+        );
     }
- 
+
     #[test]
     fn precedence_and_parentheses() {
-        assert!(type_check_source(
-            "let x = (1 + 2) * (3 - 4) / -5;"
-        ).is_empty());
+        assert!(type_check_source("let x = (1 + 2) * (3 - 4) / -5;").is_empty());
     }
 
     #[test]
@@ -324,7 +346,7 @@ mod tests {
         assert!(!diags.is_empty());
     }
 
-        #[test]
+    #[test]
     fn if_bool_condition_is_ok() {
         assert!(type_check_source("if true { }").is_empty());
     }
@@ -360,16 +382,12 @@ mod tests {
 
     #[test]
     fn if_block_binding_not_in_env_after_block() {
-        assert!(type_check_source(
-            "let a = 1;\nif true { let b = 2; }\na;"
-        ).is_empty());
+        assert!(type_check_source("let a = 1;\nif true { let b = 2; }\na;").is_empty());
     }
 
     #[test]
     fn both_blocks_type_checked_independently() {
-        assert!(type_check_source(
-            "if 1 < 2 { let x = 1; } else { let y = 2; }"
-        ).is_empty());
+        assert!(type_check_source("if 1 < 2 { let x = 1; } else { let y = 2; }").is_empty());
     }
 
     #[test]
@@ -385,8 +403,42 @@ mod tests {
 
     #[test]
     fn nested_if_type_checked() {
-        assert!(type_check_source(
-            "let x = 1;\nif true { if x < 2 { x; } }"
-        ).is_empty());
+        assert!(type_check_source("let x = 1;\nif true { if x < 2 { x; } }").is_empty());
+    }
+
+    #[test]
+    fn empty_block_stmt_type_checks_ok() {
+        assert!(type_check_source("{ }").is_empty());
+    }
+
+    #[test]
+    fn block_stmt_with_valid_expr_is_ok() {
+        assert!(type_check_source("{ 1 + 2; }").is_empty());
+    }
+
+    #[test]
+    fn block_stmt_binding_has_correct_type_inside() {
+        assert!(type_check_source("{ let x = 1;\nx; }").is_empty());
+    }
+
+    #[test]
+    fn block_stmt_env_restored_after_block() {
+        assert!(type_check_source("let a = 1;\n{ let b = 2; }\na;").is_empty());
+    }
+
+    #[test]
+    fn type_error_inside_block_stmt_is_reported() {
+        let diags = type_check_source("{ let b = true;\nb + 1; }");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn nested_block_stmt_type_checks_ok() {
+        assert!(type_check_source("{ { let x = 1;\nx; } }").is_empty());
+    }
+
+    #[test]
+    fn two_consecutive_blocks_same_name_type_checks_ok() {
+        assert!(type_check_source("{ let x = 1;\nx; }\n{ let x = true;\nx; }").is_empty());
     }
 }
