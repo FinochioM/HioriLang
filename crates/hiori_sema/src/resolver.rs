@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use hiori_diagnostics::{Diagnostic, Span};
-use hiori_parser::{Expr, Node, Program, Stmt};
+use hiori_parser::{Block, Expr, Node, Program, Stmt};
 
 pub fn resolve(program: &Program) -> Vec<Diagnostic> {
     let mut resolver = Resolver::new();
@@ -54,7 +54,24 @@ impl Resolver {
             Stmt::Expr(expr) => {
                 self.resolve_expr(expr);
             }
+
+            Stmt::If { condition, then_block, else_block } => {
+                self.resolve_expr(condition);
+                self.resolve_block(then_block);
+                if let Some(block) = else_block {
+                    self.resolve_block(block);
+                }
+            }
         }
+    }
+
+    fn resolve_block(&mut self, block: &Block) {
+        let outer = self.defined.clone();
+        for stmt in &block.stmts {
+            self.resolve_stmt(stmt);
+        }
+
+        self.defined = outer;
     }
 
     fn resolve_expr(&mut self, node: &Node<Expr>) {
@@ -269,5 +286,89 @@ mod tests {
     fn undefined_name_in_comparison_right_is_error() {
         let diags = resolve_source("let b = 1 < z;");
         assert!(has_error(&diags, "undefined name 'z'"));
+    }
+
+    #[test]
+    fn if_with_bool_literal_is_valid() {
+        assert!(resolve_source("if true { }").is_empty());
+    }
+
+    #[test]
+    fn if_with_comparison_condition_is_valid() {
+        assert!(resolve_source("let x = 1;\nif x < 10 { }").is_empty());
+    }
+
+    #[test]
+    fn if_else_is_valid() {
+        assert!(resolve_source("if true { 1; } else { 2; }").is_empty());
+    }
+
+    #[test]
+    fn binding_in_block_is_visible_inside_block() {
+        assert!(resolve_source("if true { let y = 1;\ny; }").is_empty());
+    }
+
+    #[test]
+    fn binding_in_then_block_not_visible_after() {
+        let diags = resolve_source("if true { let y = 1; }\ny;");
+        assert!(has_error(&diags, "undefined name 'y'"));
+    }
+
+    #[test]
+    fn binding_in_else_block_not_visible_after() {
+        let diags = resolve_source("if true { } else { let y = 1; }\ny;");
+        assert!(has_error(&diags, "undefined name 'y'"));
+    }
+
+    #[test]
+    fn outer_binding_usable_inside_block() {
+        assert!(resolve_source("let x = 1;\nif true { x; }").is_empty());
+    }
+
+    #[test]
+    fn outer_binding_usable_after_if() {
+        assert!(resolve_source("let x = 1;\nif true { }\nx;").is_empty());
+    }
+
+    #[test]
+    fn rebinding_outer_name_in_block_is_error() {
+        let diags = resolve_source("let x = 1;\nif true { let x = 2; }");
+        assert!(has_error(&diags, "name 'x' is already defined"));
+    }
+
+    #[test]
+    fn undefined_name_in_condition_is_error() {
+        let diags = resolve_source("if z < 1 { }");
+        assert!(has_error(&diags, "undefined name 'z'"));
+    }
+
+    #[test]
+    fn undefined_name_in_then_block_is_error() {
+        let diags = resolve_source("if true { z; }");
+        assert!(has_error(&diags, "undefined name 'z'"));
+    }
+
+    #[test]
+    fn undefined_name_in_else_block_is_error() {
+        let diags = resolve_source("if true { } else { z; }");
+        assert!(has_error(&diags, "undefined name 'z'"));
+    }
+
+    #[test]
+    fn nested_if_valid() {
+        assert!(resolve_source("let x = 1;\nif true { if x < 2 { x; } }").is_empty());
+    }
+
+    #[test]
+    fn duplicate_binding_inside_block_is_error() {
+        let diags = resolve_source("if true { let y = 1;\nlet y = 2; }");
+        assert!(has_error(&diags, "name 'y' is already defined"));
+    }
+
+    #[test]
+    fn both_blocks_are_resolved_independently() {
+        assert!(resolve_source(
+            "if true { let a = 1; } else { let b = 2; }"
+        ).is_empty());
     }
 }

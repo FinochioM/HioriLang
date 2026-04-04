@@ -51,6 +51,11 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub stmts: Vec<Node<Stmt>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
         name: String,
@@ -59,6 +64,11 @@ pub enum Stmt {
     },
 
     Expr(Node<Expr>),
+    If {
+        condition: Box<Node<Expr>>,
+        then_block: Block,
+        else_block: Option<Block>,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

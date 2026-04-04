@@ -1,7 +1,7 @@
 use std::collections::HashMap;
  
 use hiori_diagnostics::{Diagnostic, Span};
-use hiori_parser::{Expr, Node, Program, Stmt};
+use hiori_parser::{Block, Expr, Node, Program, Stmt};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Type {
@@ -49,10 +49,32 @@ impl TypeChecker {
             Stmt::Expr(expr) => {
                 self.check_expr(expr);
             }
+
+            Stmt::If { condition, then_block, else_block } => {
+                if let Some(ty) = self.check_expr(condition) {
+                    if ty != Type::Bool { 
+                        self.error(format!("'if' condition must be Bool, got {:?}", ty), condition.span.clone());
+                    }
+                }
+
+                self.check_block(then_block);
+                if let Some(block) = else_block {
+                    self.check_block(block);
+                }
+            }
         }
     }
 
-        fn check_expr(&mut self, node: &Node<Expr>) -> Option<Type> {
+    fn check_block(&mut self, block: &Block) {
+        let outer = self.env.clone();
+        for stmt in &block.stmts {
+            self.check_stmt(stmt);
+        }
+
+        self.env = outer;
+    }
+
+    fn check_expr(&mut self, node: &Node<Expr>) -> Option<Type> {
         match &node.inner {
             Expr::Integer(_) => Some(Type::Int),
 
@@ -300,5 +322,71 @@ mod tests {
     fn bool_as_compare_left_operand_is_type_error() {
         let diags = type_check_source("let b = true;\nlet x = b < 1;");
         assert!(!diags.is_empty());
+    }
+
+        #[test]
+    fn if_bool_condition_is_ok() {
+        assert!(type_check_source("if true { }").is_empty());
+    }
+
+    #[test]
+    fn if_comparison_condition_is_ok() {
+        assert!(type_check_source("if 1 < 2 { }").is_empty());
+    }
+
+    #[test]
+    fn if_int_condition_is_type_error() {
+        let diags = type_check_source("if 1 { }");
+        assert!(!diags.is_empty());
+        assert!(diags[0].message.contains("Bool"));
+    }
+
+    #[test]
+    fn if_int_expr_condition_is_type_error() {
+        let diags = type_check_source("if 1 + 2 { }");
+        assert!(!diags.is_empty());
+        assert!(diags[0].message.contains("Bool"));
+    }
+
+    #[test]
+    fn if_else_bool_condition_is_ok() {
+        assert!(type_check_source("if true { 1; } else { 2; }").is_empty());
+    }
+
+    #[test]
+    fn if_block_binding_has_correct_type() {
+        assert!(type_check_source("if true { let x = 1;\nx; }").is_empty());
+    }
+
+    #[test]
+    fn if_block_binding_not_in_env_after_block() {
+        assert!(type_check_source(
+            "let a = 1;\nif true { let b = 2; }\na;"
+        ).is_empty());
+    }
+
+    #[test]
+    fn both_blocks_type_checked_independently() {
+        assert!(type_check_source(
+            "if 1 < 2 { let x = 1; } else { let y = 2; }"
+        ).is_empty());
+    }
+
+    #[test]
+    fn bool_value_in_then_block_is_ok() {
+        assert!(type_check_source("if true { let b = 1 < 2;\nb; }").is_empty());
+    }
+
+    #[test]
+    fn type_error_inside_block_is_reported() {
+        let diags = type_check_source("if true { let b = true;\nb + 1; }");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn nested_if_type_checked() {
+        assert!(type_check_source(
+            "let x = 1;\nif true { if x < 2 { x; } }"
+        ).is_empty());
     }
 }

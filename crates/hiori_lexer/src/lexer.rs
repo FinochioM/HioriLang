@@ -70,6 +70,8 @@ impl<'src> Lexer<'src> {
             "let" => TokenKind::Let,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
             _     => TokenKind::Ident(text),
         };
 
@@ -126,6 +128,8 @@ impl<'src> Lexer<'src> {
                 }
             }
             ';' => Token::new(TokenKind::Semicolon, start, start + 1),
+            '{' => Token::new(TokenKind::LBrace, start, start + 1),
+            '}' => Token::new(TokenKind::RBrace, start, start + 1),
 
             c if c.is_ascii_digit()            => self.read_integer(start, c),
             c if c.is_alphabetic() || c == '_' => self.read_ident(start, c),
@@ -368,5 +372,50 @@ mod tests {
         let (tokens, _) = Lexer::new("!=").tokenize();
         assert_eq!(tokens[0].span.start, 0);
         assert_eq!(tokens[0].span.end,   2);
+    }
+
+    #[test]
+    fn if_keyword_is_promoted() {
+        assert_eq!(kinds("if"), vec![TokenKind::If, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn else_keyword_is_promoted() {
+        assert_eq!(kinds("else"), vec![TokenKind::Else, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn lbrace_token() {
+        assert_eq!(kinds("{"), vec![TokenKind::LBrace, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn rbrace_token() {
+        assert_eq!(kinds("}"), vec![TokenKind::RBrace, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn if_prefix_stays_ident() {
+        assert_eq!(
+            kinds("iffy"),
+            vec![TokenKind::Ident("iffy".to_string()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn else_prefix_stays_ident() {
+        assert_eq!(
+            kinds("elsewhere"),
+            vec![TokenKind::Ident("elsewhere".to_string()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn brace_spans() {
+        let (tokens, _) = Lexer::new("{}").tokenize();
+        assert_eq!(tokens[0].span.start, 0);
+        assert_eq!(tokens[0].span.end,   1);
+        assert_eq!(tokens[1].span.start, 1);
+        assert_eq!(tokens[1].span.end,   2);
     }
 }

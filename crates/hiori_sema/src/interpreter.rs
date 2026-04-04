@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
  
 use hiori_diagnostics::Diagnostic;
-use hiori_parser::{BinOp, CmpOp, Expr, Node, Program, Stmt};
+use hiori_parser::{BinOp, Block, CmpOp, Expr, Node, Program, Stmt};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -57,7 +57,33 @@ impl Interpreter {
                 println!("{}", val);
                 Ok(())
             }
+
+            Stmt::If { condition, then_block, else_block } => {
+                let Value::Bool(b) = self.eval_expr(condition)? else {
+                    unreachable!("type checker guarantees if condition is Bool")
+                };
+
+                if b {
+                    self.exec_block(then_block)?;
+                } else if let Some(block) = else_block {
+                    self.exec_block(block)?;
+                }
+
+                Ok(())
+            }
         }
+    }
+
+    fn exec_block(&mut self, block: &Block) -> Result<(), Diagnostic> {
+        let outer = self.env.clone();
+
+        for stmt in &block.stmts {
+            self.exec_stmt(stmt)?;
+        }
+
+        self.env = outer;
+
+        Ok(())
     }
 
     fn eval_expr(&mut self, node: &Node<Expr>) -> Result<Value, Diagnostic> {
@@ -274,5 +300,73 @@ mod tests {
     #[test]
     fn equal_integers_produce_true() {
         assert!(run("let x = 7;\nlet y = 7;\nx == y;").is_ok());
+    }
+
+        #[test]
+    fn if_true_empty_block_is_ok() {
+        assert!(run("if true { }").is_ok());
+    }
+
+    #[test]
+    fn if_false_empty_block_is_ok() {
+        assert!(run("if false { }").is_ok());
+    }
+
+    #[test]
+    fn if_true_branch_executes() {
+        assert!(run("if true { 1; }").is_ok());
+    }
+
+    #[test]
+    fn if_false_branch_not_taken_no_error() {
+        assert!(run("if false { 1; }").is_ok());
+    }
+
+    #[test]
+    fn if_else_then_branch_taken() {
+        assert!(run("if true { 1; } else { 2; }").is_ok());
+    }
+
+    #[test]
+    fn if_else_else_branch_taken() {
+        assert!(run("if false { 1; } else { 2; }").is_ok());
+    }
+
+    #[test]
+    fn if_with_comparison_condition() {
+        assert!(run("let x = 5;\nif x < 10 { x; }").is_ok());
+    }
+
+    #[test]
+    fn if_false_skips_division_by_zero() {
+        assert!(run("if false { 10 / 0; }").is_ok());
+    }
+
+    #[test]
+    fn if_true_propagates_division_by_zero() {
+        let err = run("if true { 10 / 0; }").unwrap_err();
+        assert!(err.message.contains("division by zero"));
+    }
+
+    #[test]
+    fn block_scoped_binding_does_not_leak() {
+        assert!(run("if true { let y = 1; }").is_ok());
+    }
+
+    #[test]
+    fn nested_if_executes_correctly() {
+        assert!(run("let x = 1;\nif true { if x < 2 { x; } }").is_ok());
+    }
+
+    #[test]
+    fn else_if_pattern_executes_correctly() {
+        assert!(run(
+            "let x = 5;\nif x < 3 { 1; } else { if x < 7 { 2; } else { 3; } }"
+        ).is_ok());
+    }
+
+    #[test]
+    fn outer_binding_readable_inside_block() {
+        assert!(run("let x = 42;\nif true { x; }").is_ok());
     }
 }

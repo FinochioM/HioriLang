@@ -1,7 +1,7 @@
 use hiori_diagnostics::{Diagnostic, Span};
 use hiori_lexer::{Token, TokenKind};
 
-use crate::ast::{BinOp, CmpOp, Expr, Node, Program, Stmt};
+use crate::ast::{BinOp, Block, CmpOp, Expr, Node, Program, Stmt};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -69,7 +69,7 @@ impl Parser {
     fn synchronize(&mut self) {
         loop {
             match self.peek_kind() {
-                TokenKind::Eof => break,
+                TokenKind::Eof | TokenKind::RBrace => break,
                 TokenKind::Semicolon => {
                     self.advance();
                     break;
@@ -84,6 +84,7 @@ impl Parser {
     fn parse_stmt(&mut self) -> Option<Node<Stmt>> {
         match self.peek_kind() {
             TokenKind::Let => self.parse_let_stmt(),
+            TokenKind::If => self.parse_if_stmt(),
             _              => self.parse_expr_stmt(),
         }
     }
@@ -116,6 +117,60 @@ impl Parser {
             Stmt::Let { name, name_span, value: Box::new(value) },
             span,
         ))
+    }
+
+    fn parse_if_stmt(&mut self) -> Option<Node<Stmt>> {
+        let if_span = self.current_span();
+
+        self.advance();
+
+        let condition = self.parse_expr()?;
+        let (then_block, mut end) = self.parse_block()?;
+
+        let else_block = if matches!(self.peek_kind(), TokenKind::Else) {
+            self.advance();
+            let (block, else_end) = self.parse_block()?;
+            end = else_end;
+            Some(block)
+        } else {
+            None
+        };
+
+        let span = Span::new(if_span.start, end);
+        Some(Node::new(Stmt::If {
+            condition: Box::new(condition),
+            then_block,
+            else_block,
+        }, span))
+    }
+
+    fn parse_block(&mut self) -> Option<(Block, usize)> {
+        if !matches!(self.peek_kind(), TokenKind::LBrace) {
+            let span = self.current_span();
+            self.error("expected '{'", span);
+            return None;
+        }
+
+        self.advance();
+
+        let mut stmts = Vec::new();
+
+        while !matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof) {
+            match self.parse_stmt() {
+                Some(stmt) => stmts.push(stmt),
+                None => self.synchronize(),
+            }
+        }
+
+        if matches!(self.peek_kind(), TokenKind::RBrace) {
+            let end = self.current_span().end;
+            self.advance();
+            Some((Block { stmts }, end))
+        } else {
+            let span = self.current_span();
+            self.error("expected '}'", span);
+            None
+        }
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Node<Stmt>> {
@@ -741,5 +796,136 @@ mod tests {
         assert!(lex_diags.is_empty());
         assert_eq!(node.span.start, 0);
         assert_eq!(node.span.end,   5);
+    }
+
+    #[test]
+    fn parse_if_empty_block() {
+        let (program, diags) = parse_program("if true { }");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 1);
+        assert!(matches!(program.stmts[0].inner, Stmt::If { .. }));
+    }
+
+    #[test]
+    fn parse_if_with_body() {
+        let (program, diags) = parse_program("if true { 1; }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::If { then_block, else_block, .. } => {
+                assert_eq!(then_block.stmts.len(), 1);
+                assert!(else_block.is_none());
+            }
+            _ => panic!("expected If"),
+        }
+    }
+
+    #[test]
+    fn parse_if_else() {
+        let (program, diags) = parse_program("if true { 1; } else { 2; }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::If { then_block, else_block, .. } => {
+                assert_eq!(then_block.stmts.len(), 1);
+                assert!(else_block.is_some());
+                assert_eq!(else_block.as_ref().unwrap().stmts.len(), 1);
+            }
+            _ => panic!("expected If"),
+        }
+    }
+
+    #[test]
+    fn parse_if_condition_is_comparison() {
+        let (program, diags) = parse_program("let x = 1;\nif x < 10 { }");
+        assert!(diags.is_empty());
+        match &program.stmts[1].inner {
+            Stmt::If { condition, .. } => {
+                assert!(matches!(condition.inner, Expr::Compare { .. }));
+            }
+            _ => panic!("expected If"),
+        }
+    }
+
+    #[test]
+    fn parse_nested_if() {
+        let (program, diags) = parse_program("if true { if false { 1; } }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::If { then_block, .. } => {
+                assert_eq!(then_block.stmts.len(), 1);
+                assert!(matches!(then_block.stmts[0].inner, Stmt::If { .. }));
+            }
+            _ => panic!("expected If"),
+        }
+    }
+
+    #[test]
+    fn parse_else_if_pattern() {
+        let (program, diags) =
+            parse_program("if true { 1; } else { if false { 2; } else { 3; } }");
+        assert!(diags.is_empty());
+        match &program.stmts[0].inner {
+            Stmt::If { else_block, .. } => {
+                let eb = else_block.as_ref().unwrap();
+                assert_eq!(eb.stmts.len(), 1);
+                assert!(matches!(eb.stmts[0].inner, Stmt::If { .. }));
+            }
+            _ => panic!("expected If"),
+        }
+    }
+
+    #[test]
+    fn parse_if_missing_lbrace_is_error() {
+        let (_, diags) = parse_program("if true 1;");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains('{')));
+    }
+
+    #[test]
+    fn parse_if_missing_rbrace_is_error() {
+        let (_, diags) = parse_program("if true { 1;");
+        assert!(!diags.is_empty());
+        assert!(diags.iter().any(|d| d.message.contains('}')));
+    }
+
+    #[test]
+    fn parse_if_no_condition_is_error() {
+        let (_, diags) = parse_program("if { }");
+        assert!(!diags.is_empty());
+    }
+
+    #[test]
+    fn parse_if_span_covers_full_statement() {
+        let (program, diags) = parse_program("if true { }");
+        assert!(diags.is_empty());
+        let node = &program.stmts[0];
+        assert_eq!(node.span.start, 0);
+        assert_eq!(node.span.end,   11);
+    }
+
+    #[test]
+    fn parse_if_else_span_covers_else_block() {
+        let (program, diags) = parse_program("if true { } else { }");
+        assert!(diags.is_empty());
+        let node = &program.stmts[0];
+        assert_eq!(node.span.start, 0);
+        assert_eq!(node.span.end,   20);
+    }
+
+    #[test]
+    fn parse_error_inside_block_recovers() {
+        let (program, diags) = parse_program("if true { let = 1; }\nlet x = 2;");
+        assert!(!diags.is_empty());
+        assert!(program.stmts.iter().any(|s| matches!(&s.inner,
+            Stmt::Let { name, .. } if name == "x"
+        )));
+    }
+
+    #[test]
+    fn if_stmt_followed_by_let_stmt() {
+        let (program, diags) = parse_program("if true { }\nlet x = 1;");
+        assert!(diags.is_empty());
+        assert_eq!(program.stmts.len(), 2);
+        assert!(matches!(program.stmts[0].inner, Stmt::If { .. }));
+        assert!(matches!(program.stmts[1].inner, Stmt::Let { .. }));
     }
 }
